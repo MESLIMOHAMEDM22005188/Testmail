@@ -70,6 +70,7 @@ const TEMPLATES = [
 ];
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.send', 'openid', 'email', 'profile'];
+const sendAttempts = new Map();
 
 function createOAuthClient() {
   return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
@@ -79,6 +80,17 @@ function ensureAuthenticated(req, res, next) {
   if (!req.session?.tokens?.access_token) {
     return res.status(401).json({ message: 'Authentication required. Please sign in again.' });
   }
+  next();
+}
+
+function sendRateLimit(req, res, next) {
+  const now = Date.now();
+  const recent = (sendAttempts.get(req.sessionID) ?? []).filter((timestamp) => now - timestamp < 60_000);
+  if (recent.length >= 10) {
+    return res.status(429).json({ message: 'Too many messages sent. Please wait a minute before trying again.' });
+  }
+  recent.push(now);
+  sendAttempts.set(req.sessionID, recent);
   next();
 }
 
@@ -197,7 +209,7 @@ app.get('/api/templates', ensureAuthenticated, (_req, res) => {
   res.json(TEMPLATES);
 });
 
-app.post('/api/email/send', ensureAuthenticated, async (req, res) => {
+app.post('/api/email/send', ensureAuthenticated, sendRateLimit, async (req, res) => {
   const { to, subject, body } = req.body ?? {};
 
   if (!isValidEmail(to)) {
