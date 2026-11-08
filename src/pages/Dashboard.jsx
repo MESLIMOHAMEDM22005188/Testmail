@@ -56,7 +56,7 @@ export default function Dashboard() {
 
   const handleSend = async (event) => {
     event.preventDefault();
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(recipientEmail.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail.trim())) {
       setFeedback({ type: 'error', message: 'Enter a valid recipient email address.' });
       return;
     }
@@ -132,35 +132,24 @@ export default function Dashboard() {
         </div>
         <div className="form-group">
           <label htmlFor="recipient-email">Recipient email</label>
-          <input
-            id="recipient-email"
-            type="email"
-            autoComplete="email"
-            required
-            maxLength={254}
-            value={recipientEmail}
-            placeholder="friend@example.com"
-            onChange={(event) => setRecipientEmail(event.target.value)}
-          />
+          <input id="recipient-email" type="email" autoComplete="email" required maxLength={254}
+            value={recipientEmail} placeholder="friend@example.com"
+            onChange={(event) => setRecipientEmail(event.target.value)} />
         </div>
         <div className="form-group">
           <label htmlFor="recipient-name">Recipient name</label>
-          <input
-            id="recipient-name"
-            type="text"
-            maxLength={120}
-            value={recipientName}
-            placeholder="Your friend's name"
-            onChange={(event) => setRecipientName(event.target.value)}
-          />
+          <input id="recipient-name" type="text" maxLength={120} value={recipientName}
+            placeholder="Your friend's name" onChange={(event) => setRecipientName(event.target.value)} />
         </div>
         <div className="form-group">
           <label htmlFor="subject">Subject</label>
-          <input id="subject" type="text" required maxLength={998} value={subject} onChange={(event) => setSubject(event.target.value)} />
+          <input id="subject" type="text" required maxLength={998} value={subject}
+            onChange={(event) => setSubject(event.target.value)} />
         </div>
         <div className="form-group">
           <label htmlFor="body">Message</label>
-          <textarea id="body" rows={9} required maxLength={100000} value={body} onChange={(event) => setBody(event.target.value)} />
+          <textarea id="body" rows={9} required maxLength={100000} value={body}
+            onChange={(event) => setBody(event.target.value)} />
         </div>
         <div className="compose-footer">
           <p className="footer-text">Messages are sent through the Gmail account connected to this session.</p>
