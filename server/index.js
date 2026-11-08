@@ -19,10 +19,10 @@ const {
 } = process.env;
 
 const isProduction = NODE_ENV === 'production';
-const requiredEnv = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET'];
-const missingEnv = requiredEnv.filter((key) => !process.env[key]);
+const missingEnv = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET']
+  .filter((key) => !process.env[key]);
 
-if (missingEnv.length > 0) {
+if (missingEnv.length) {
   throw new Error(`Missing required environment variables: ${missingEnv.join(', ')}`);
 }
 if (SESSION_SECRET.length < 32) {
@@ -35,55 +35,48 @@ if (isProduction) app.set('trust proxy', 1);
 
 app.use(cors({ origin: CLIENT_URL, credentials: true }));
 app.use(express.json({ limit: '32kb' }));
-app.use(
-  session({
-    name: SESSION_COOKIE_NAME,
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    },
-  }),
-);
+app.use(session({
+  name: SESSION_COOKIE_NAME,
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+}));
 
 const TEMPLATES = [
   {
     id: 'friendly-check-in',
     name: 'Friendly Check-In',
     subject: 'Just checking in',
-    body: 'Hi {{name}},\\n\\nI hope you are doing well! Just wanted to check in and see how everything is going.\\n\\nBest,\\n{{sender}}',
+    body: 'Hi {{name}},\n\nI hope you are doing well! Just wanted to check in and see how everything is going.\n\nBest,\n{{sender}}',
   },
   {
     id: 'event-invite',
     name: 'Event Invite',
     subject: "You're invited!",
-    body: "Hello {{name}},\\n\\nI'm hosting a small get-together this weekend and would love for you to join! Let me know if you can make it.\\n\\nCheers,\\n{{sender}}",
+    body: "Hello {{name}},\n\nI'm hosting a small get-together this weekend and would love for you to join! Let me know if you can make it.\n\nCheers,\n{{sender}}",
   },
   {
     id: 'thank-you',
     name: 'Thank You Note',
     subject: 'Thank you so much',
-    body: 'Dear {{name}},\\n\\nThank you for your help recently. It meant a lot to me and I appreciate your support.\\n\\nWarm regards,\\n{{sender}}',
+    body: 'Dear {{name}},\n\nThank you for your help recently. It meant a lot to me and I appreciate your support.\n\nWarm regards,\n{{sender}}',
   },
 ];
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.send', 'openid', 'email', 'profile'];
-const oauthStates = new Map();
 
 function createOAuthClient() {
   return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
 }
 
-function getSessionTokens(req) {
-  return req.session?.tokens;
-}
-
 function ensureAuthenticated(req, res, next) {
-  if (!getSessionTokens(req)) {
+  if (!req.session?.tokens?.access_token) {
     return res.status(401).json({ message: 'Authentication required. Please sign in again.' });
   }
   next();
@@ -92,11 +85,11 @@ function ensureAuthenticated(req, res, next) {
 function isValidEmail(value) {
   return typeof value === 'string'
     && value.length <= 254
-    && /^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$/.test(value);
+    && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value);
 }
 
-function rejectHeaderInjection(value) {
-  return typeof value !== 'string' || /[\\r\\n]/.test(value);
+function containsHeaderBreak(value) {
+  return typeof value !== 'string' || /[\r\n]/.test(value);
 }
 
 function encodeHeader(value) {
@@ -104,69 +97,83 @@ function encodeHeader(value) {
 }
 
 function createRawMessage({ to, subject, body }) {
-  const safeSubject = encodeHeader(subject.trim());
   const message = [
     `To: ${to.trim()}`,
-    `Subject: ${safeSubject}`,
+    `Subject: ${encodeHeader(subject.trim())}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: base64',
     '',
     Buffer.from(body, 'utf8').toString('base64'),
-  ].join('\\r\\n');
+  ].join('\r\n');
 
   return Buffer.from(message, 'utf8')
     .toString('base64')
-    .replace(/\\+/g, '-')
-    .replace(/\\//g, '_')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
     .replace(/=+$/, '');
 }
 
 app.get('/api/auth/url', (req, res) => {
   const state = crypto.randomBytes(32).toString('hex');
-  oauthStates.set(state, Date.now());
-  for (const [storedState, createdAt] of oauthStates) {
-    if (Date.now() - createdAt > 10 * 60 * 1000) oauthStates.delete(storedState);
-  }
+  req.session.oauthState = state;
+  req.session.oauthStateCreatedAt = Date.now();
 
-  const authUrl = createOAuthClient().generateAuthUrl({
+  const url = createOAuthClient().generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
     state,
   });
-  res.json({ url: authUrl });
+  req.session.save((error) => {
+    if (error) return res.status(500).json({ message: 'Could not initialize Google sign-in.' });
+    res.json({ url });
+  });
 });
 
 app.get('/api/auth/google/callback', async (req, res) => {
   const { code, state, error } = req.query;
   if (error) return res.redirect(`${CLIENT_URL}/?auth_error=consent_denied`);
-  if (typeof code !== 'string' || typeof state !== 'string' || !oauthStates.has(state)) {
+
+  const stateIsValid = typeof state === 'string'
+    && typeof req.session.oauthState === 'string'
+    && state === req.session.oauthState
+    && Date.now() - req.session.oauthStateCreatedAt <= 10 * 60 * 1000;
+
+  if (typeof code !== 'string' || !stateIsValid) {
     return res.status(400).send('Invalid or expired OAuth state. Please restart sign-in.');
   }
-  oauthStates.delete(state);
 
   try {
     const { tokens } = await createOAuthClient().getToken(code);
     if (!tokens.access_token) throw new Error('Google did not return an access token.');
 
+    const oauthClient = createOAuthClient();
+    oauthClient.setCredentials(tokens);
+    const { data: profile } = await google.oauth2({ version: 'v2', auth: oauthClient }).userinfo.get();
+
     await new Promise((resolve, reject) => {
       req.session.regenerate((sessionError) => {
         if (sessionError) return reject(sessionError);
         req.session.tokens = tokens;
+        req.session.profile = {
+          email: profile.email,
+          name: profile.name,
+          picture: profile.picture,
+        };
         req.session.save((saveError) => (saveError ? reject(saveError) : resolve()));
       });
     });
 
     res.redirect(`${CLIENT_URL}/dashboard?authenticated=true`);
-  } catch (error) {
-    console.error('OAuth callback failed:', error.message);
+  } catch (callbackError) {
+    console.error('OAuth callback failed:', callbackError.message);
     res.redirect(`${CLIENT_URL}/?auth_error=oauth_failed`);
   }
 });
 
 app.get('/api/auth/status', (req, res) => {
-  const tokens = getSessionTokens(req);
+  const tokens = req.session?.tokens;
   res.json({
     authenticated: Boolean(tokens?.access_token),
     profile: req.session?.profile ?? null,
@@ -199,31 +206,32 @@ app.post('/api/email/send', ensureAuthenticated, async (req, res) => {
   if (typeof subject !== 'string' || subject.trim().length === 0 || subject.length > 998) {
     return res.status(400).json({ message: 'Subject must contain between 1 and 998 characters.' });
   }
-  if (rejectHeaderInjection(subject)) {
+  if (containsHeaderBreak(subject)) {
     return res.status(400).json({ message: 'Subject contains invalid line breaks.' });
   }
   if (typeof body !== 'string' || body.trim().length === 0 || body.length > 100000) {
     return res.status(400).json({ message: 'Email body must contain between 1 and 100,000 characters.' });
   }
 
-  try {
-    const oauth2Client = createOAuthClient();
-    oauth2Client.setCredentials(getSessionTokens(req));
-    oauth2Client.on('tokens', (tokens) => {
-      req.session.tokens = { ...req.session.tokens, ...tokens };
+  const oauthClient = createOAuthClient();
+  oauthClient.setCredentials(req.session.tokens);
+  oauthClient.on('tokens', (tokens) => {
+    req.session.tokens = { ...req.session.tokens, ...tokens };
+    req.session.save((error) => {
+      if (error) console.error('Could not persist refreshed Google tokens:', error.message);
     });
+  });
 
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    const raw = createRawMessage({ to, subject, body });
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauthClient });
     const result = await gmail.users.messages.send({
       userId: 'me',
-      requestBody: { raw },
+      requestBody: { raw: createRawMessage({ to, subject, body }) },
     });
-
     res.json({ success: true, messageId: result.data.id ?? null });
-  } catch (error) {
-    const status = error.code === 401 || error.response?.status === 401 ? 401 : 502;
-    console.error('Gmail send failed:', error.message);
+  } catch (sendError) {
+    const status = sendError.code === 401 || sendError.response?.status === 401 ? 401 : 502;
+    console.error('Gmail send failed:', sendError.message);
     res.status(status).json({
       message: status === 401
         ? 'Your Google session has expired. Please sign in again.'
