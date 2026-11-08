@@ -6,24 +6,23 @@ export default function Login() {
   const { login, user, loading, authError, refreshStatus } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const authenticated = searchParams.has('authenticated');
+  const authErrorParam = searchParams.get('auth_error');
 
   useEffect(() => {
+    if (!authenticated) return undefined;
     let active = true;
-    if (searchParams.has('authenticated')) {
-      refreshStatus().then((authenticated) => {
-        if (active && authenticated) navigate('/dashboard', { replace: true });
-      });
-    }
+    refreshStatus().then((isAuthenticated) => {
+      if (active && isAuthenticated) navigate('/dashboard', { replace: true });
+    });
     return () => {
       active = false;
     };
-  }, [searchParams, refreshStatus, navigate]);
+  }, [authenticated, refreshStatus, navigate]);
 
   useEffect(() => {
     if (!loading && user) navigate('/dashboard', { replace: true });
   }, [loading, navigate, user]);
-
-  const authErrorParam = searchParams.get('auth_error');
 
   return (
     <main className="page page--centered">
