@@ -1,10 +1,10 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import './App.css';
 
-function App() {
+export default function App() {
   return (
     <AuthProvider>
       <Routes>
@@ -15,5 +15,3 @@ function App() {
     </AuthProvider>
   );
 }
-
-export default App;
