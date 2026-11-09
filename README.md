@@ -1,205 +1,437 @@
 # Testmail
 
-Testmail is a lightweight email-composition app that lets users authenticate with Google, choose a reusable message template, customize the content, and send the email through their own Gmail account.
+**A lightweight Gmail email composer built with React, Vite, Node.js, and the Gmail API.**
 
-The project uses a React + Vite frontend and an Express API backed by the Google OAuth 2.0 and Gmail APIs.
+Testmail lets you sign in with your Google account, start from a reusable email template, personalize the message, and send it directly through Gmail. This fork also includes improvements to authentication handling, input validation, email encoding, frontend usability, and project documentation.
+
+> Testmail is a learning and starter project. It is not intended to be an enterprise email marketing platform.
+
+---
+
+## Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Tech stack](#tech-stack)
+- [Project structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Google Cloud setup](#google-cloud-setup)
+- [Installation](#installation)
+- [Environment variables](#environment-variables)
+- [Run the application](#run-the-application)
+- [API reference](#api-reference)
+- [Improvements in this fork](#improvements-in-this-fork)
+- [Security and production considerations](#security-and-production-considerations)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Overview
+
+Testmail provides a simple workflow for composing and sending emails:
+
+1. Sign in with Google.
+2. Choose one of the available message templates.
+3. Enter the recipient's email address and, optionally, their name.
+4. Edit the subject and message body.
+5. Send the message through the authenticated Gmail account.
+
+The application uses Google's OAuth 2.0 flow for authentication and the Gmail API for message delivery. Google credentials remain on the backend; the frontend communicates with the API using a session cookie.
 
 ## Features
 
-- Google sign-in using OAuth 2.0.
-- Gmail message delivery with the `gmail.send` scope.
-- Reusable email templates with recipient and sender placeholders.
-- Editable recipient, subject, and message body.
-- Session-based authentication with an HTTP-only cookie.
-- Server-side validation for email fields and message content.
-- Responsive interface for desktop and mobile screens.
+- **Google authentication** — sign in with an OAuth 2.0 Google account.
+- **Gmail integration** — send messages using the Gmail API.
+- **Reusable templates** — start with a check-in, invitation, or thank-you message.
+- **Personalized content** — templates support recipient and sender placeholders.
+- **Editable messages** — customize the recipient, subject, and body before sending.
+- **Session-based access** — protect email and template endpoints behind authentication.
+- **Input validation** — validate addresses and enforce message length limits on the server.
+- **Responsive interface** — use the composer on desktop and mobile screens.
 
-## Technology stack
+## How it works
 
-| Area | Technology |
+```text
+┌────────────────────┐
+│   React frontend   │
+│  Login / Composer  │
+└─────────┬──────────┘
+          │ HTTP + session cookie
+          ▼
+┌────────────────────┐
+│    Express API     │
+│ Auth / Validation  │
+└─────────┬──────────┘
+          │ OAuth 2.0 access token
+          ▼
+┌────────────────────┐
+│     Google APIs    │
+│  OAuth 2.0 / Gmail │
+└────────────────────┘
+```
+
+The frontend never receives the Google client secret. The backend manages the OAuth callback, stores the authenticated session, validates outgoing message data, and submits the message to Gmail.
+
+## Tech stack
+
+| Layer | Technology |
 | --- | --- |
-| Frontend | React 19, React Router, Vite |
+| Frontend | React 19, Vite |
+| Routing | React Router |
 | HTTP client | Axios |
-| Backend | Node.js, Express 5 |
+| Backend | Node.js 20+, Express 5 |
 | Authentication | Google OAuth 2.0 |
-| Email delivery | Gmail API |
-| Sessions | express-session |
+| Email delivery | Google Gmail API |
+| Session management | express-session |
+| Development tooling | ESLint, Nodemon |
 
 ## Project structure
 
 ```text
 Testmail/
-├── src/
-│   ├── context/          # React authentication context
-│   ├── hooks/            # Authentication state and actions
-│   ├── pages/            # Login and dashboard screens
-│   └── services/         # API client
 ├── server/
-│   ├── index.js          # Express API and Gmail integration
-│   └── .env.example      # Backend configuration template
-├── .env.example          # Frontend configuration template
-└── package.json
+│   ├── index.js              # Express API, OAuth flow and Gmail integration
+│   ├── .env.example          # Backend environment template
+│   └── package.json
+├── src/
+│   ├── context/
+│   │   └── AuthContext.jsx   # Shared authentication context
+│   ├── hooks/
+│   │   └── useAuthProvider.js
+│   ├── pages/
+│   │   ├── Dashboard.jsx     # Email composer and templates
+│   │   └── Login.jsx         # Google sign-in screen
+│   ├── services/
+│   │   └── api.js            # Axios API client
+│   ├── App.jsx
+│   └── main.jsx
+├── .env.example              # Frontend environment template
+├── index.html
+├── package.json
+└── README.md
 ```
 
-## Requirements
+## Prerequisites
 
-- Node.js 20 or later.
-- npm.
-- A Google Cloud project.
-- Gmail API enabled in the Google Cloud project.
-- An OAuth 2.0 Client ID configured as a **Web application**.
+Before you begin, make sure you have:
 
-## Google Cloud configuration
+- [Node.js](https://nodejs.org/) 20 or later.
+- npm (included with Node.js).
+- A Google account for testing.
+- A Google Cloud project with the Gmail API enabled.
+
+Check your installed versions:
+
+```bash
+node --version
+npm --version
+```
+
+## Google Cloud setup
+
+Testmail requires a Google OAuth 2.0 client and access to the Gmail API.
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/).
-2. Select or create a project and enable the **Gmail API**.
-3. Configure the OAuth consent screen. While the app is in testing mode, add the Gmail account you will use under **Test users**.
-4. Create an OAuth 2.0 client ID with the **Web application** type.
-5. Add this authorized redirect URI:
+2. Create a project or select an existing one.
+3. Open **APIs & Services → Library** and enable the **Gmail API**.
+4. Configure the OAuth consent screen. If the application is in testing mode, add the Google account you will use as a test user.
+5. Open **APIs & Services → Credentials**.
+6. Create an **OAuth client ID** and choose **Web application**.
+7. Add the following authorized redirect URI:
 
    ```text
    http://localhost:4000/api/auth/google/callback
    ```
 
-6. The application requests these scopes:
+8. Copy the OAuth **Client ID** and **Client Secret**. You will add them to the backend environment file in the next section.
 
-   - `openid`
-   - `email`
-   - `profile`
-   - `https://www.googleapis.com/auth/gmail.send`
+### OAuth scopes
 
-The Gmail scope is limited to sending messages. The app does not request permission to read or manage the mailbox.
+The application requests the following scopes:
+
+| Scope | Purpose |
+| --- | --- |
+| `openid` | Identify the signed-in Google account |
+| `email` | Retrieve the account email address |
+| `profile` | Retrieve basic profile information |
+| `https://www.googleapis.com/auth/gmail.send` | Send email messages |
+
+The Gmail permission is limited to sending messages. Testmail does not request permission to read, delete, or manage mailbox messages.
 
 ## Installation
 
-Clone your fork and install the dependencies:
+Clone the repository:
 
 ```bash
 git clone https://github.com/MESLIMOHAMEDM22005188/Testmail.git
 cd Testmail
-npm install
+```
+
+Install the frontend dependencies:
+
+```bash
+npm ci
+```
+
+Install the backend dependencies:
+
+```bash
 cd server
-npm install
+npm ci
 cd ..
 ```
 
-## Environment configuration
+If you do not have a lockfile for a package directory, use `npm install` instead of `npm ci`.
+
+## Environment variables
+
+The backend and frontend use separate environment files.
+
+### 1. Backend configuration
 
 Create `server/.env` from the example.
 
-macOS/Linux:
+macOS / Linux:
+
 ```bash
 cp server/.env.example server/.env
 ```
 
 Windows PowerShell:
+
 ```powershell
 Copy-Item server/.env.example server/.env
 ```
 
-Set the Google OAuth credentials and a long, random session secret in `server/.env`. Generate a suitable secret with:
+Edit `server/.env`:
+
+```dotenv
+NODE_ENV=development
+PORT=4000
+CLIENT_URL=http://localhost:5173
+
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:4000/api/auth/google/callback
+
+SESSION_SECRET=replace-with-a-long-random-secret
+SESSION_COOKIE_NAME=testmail.sid
+```
+
+Generate a strong session secret with:
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
 ```
 
-Create the frontend environment file only when you need to override the defaults:
+Paste the generated value into `SESSION_SECRET`. Keep this value private.
 
-```bash
-cp .env.example .env
+### 2. Frontend configuration
+
+For a standard local setup, no frontend environment file is required. Vite proxies requests beginning with `/api` to `http://localhost:4000`.
+
+To customize the proxy target, create a root-level `.env` file:
+
+```dotenv
+VITE_PROXY_TARGET=http://localhost:4000
 ```
 
-By default, Vite proxies `/api` requests to `http://localhost:4000`. Set `VITE_PROXY_TARGET` if your backend uses another local address. For a separately hosted API, set `VITE_API_URL` to its public API base URL, including `/api`.
+If the frontend must call a separately hosted API directly, configure:
 
-Never commit real `.env` files or expose the Google client secret in frontend variables.
+```dotenv
+VITE_API_URL=https://your-api-domain.example/api
+```
 
-## Run locally
+Only public configuration belongs in frontend variables. **Never put Google client secrets or session secrets in a `VITE_*` variable.**
 
-Start the backend in the first terminal:
+## Run the application
+
+You need two terminal windows: one for the backend and one for the frontend.
+
+### Terminal 1 — Start the backend
 
 ```bash
 cd server
 npm run dev
 ```
 
-Start the frontend in a second terminal from the project root:
+The API runs on:
+
+```text
+http://localhost:4000
+```
+
+### Terminal 2 — Start the frontend
+
+From the project root:
 
 ```bash
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal, usually [http://localhost:5173](http://localhost:5173).
+Open the local URL printed by Vite, usually:
 
-To create a production frontend build:
+[http://localhost:5173](http://localhost:5173)
+
+You can now sign in with the Google account configured in your OAuth consent screen.
+
+### Build the frontend
+
+Run these commands from the project root:
 
 ```bash
 npm run lint
 npm run build
 ```
 
-Start the API in production with:
+To preview the production frontend build locally:
 
 ```bash
-cd server
+npm run preview
+```
+
+### Start the backend without Nodemon
+
+From the `server/` directory:
+
+```bash
 npm start
 ```
 
-For production deployment, configure HTTPS, set `NODE_ENV=production`, use a persistent session store (rather than Express MemoryStore), and configure `CLIENT_URL`, `GOOGLE_REDIRECT_URI`, and the OAuth redirect URI to match the deployed domains.
+## API reference
 
-## API endpoints
+All endpoints use the `/api` prefix. Authenticated endpoints require the session cookie created during Google sign-in.
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| GET | `/api/health` | Basic API health check |
-| GET | `/api/auth/url` | Generate a Google OAuth URL |
-| GET | `/api/auth/google/callback` | Handle the OAuth callback |
-| GET | `/api/auth/status` | Return the current session status |
-| POST | `/api/auth/logout` | Destroy the current session |
-| GET | `/api/templates` | Retrieve message templates (authenticated) |
-| POST | `/api/email/send` | Send a Gmail message (authenticated) |
+| Method | Endpoint | Authentication | Description |
+| --- | --- |---| --- |
+| `GET` | `/api/health` | No | API health check |
+| `GET` | `/api/auth/url` | No | Create a Google sign-in URL |
+| `GET` | `/api/auth/google/callback` | OAuth callback | Complete Google authentication |
+| `GET` | `/api/auth/status` | Session | Check the current sign-in status |
+| `POST` | `/api/auth/logout` | Session | Destroy the current session |
+| `GET` | `/api/templates` | Yes | Retrieve available email templates |
+| `POST` | `/api/email/send` | Yes | Send an email through Gmail |
 
-Example send request:
+### Send an email
+
+Example request to `POST /api/email/send`:
 
 ```json
 {
   "to": "recipient@example.com",
   "subject": "Hello",
-  "body": "Hi there,\\n\\nThis message was sent with Testmail."
+  "body": "Hi there,\n\nThis message was sent with Testmail."
 }
 ```
 
+A successful request returns a response similar to:
+
+```json
+{
+  "success": true,
+  "messageId": "gmail-message-id"
+}
+```
+
+The message ID is supplied by Gmail. Error responses include a human-readable `message` field.
+
 ## Improvements in this fork
 
-This fork includes a focused maintenance and reliability pass over the original implementation.
+This fork focuses on security, reliability, maintainability, and a clearer developer experience.
 
-### Backend and security
+### Backend and authentication
 
-- **OAuth state validation:** Adds a random, short-lived state value to the authorization flow and validates it on callback to mitigate login CSRF.
-- **Session hardening:** Removes the fallback development secret, requires a strong session secret, regenerates the session after successful sign-in, and configures HTTP-only, SameSite cookies with production-aware Secure behavior.
-- **Safer API defaults:** Disables the Express-powered-by header and applies a JSON request-size limit.
-- **Input validation:** Validates recipient addresses and enforces sensible subject/body size limits before calling Gmail.
-- **Header-injection protection:** Rejects newline characters in subjects and encodes non-ASCII subject text using MIME encoded words.
-- **Correct MIME body encoding:** Encodes the message body as UTF-8 base64 before constructing the Gmail raw message, preserving Unicode and multiline content reliably.
-- **Clearer Gmail errors:** Handles expired/invalid credentials separately and returns actionable API messages without exposing provider internals.
-- **Session cleanup:** Destroys the server-side session and clears the matching cookie during logout.
+- **OAuth state protection:** generate a cryptographically random state value, store it in the session, and validate it during the callback.
+- **Session fixation mitigation:** regenerate the session after successful Google authentication.
+- **Stronger configuration:** require Google OAuth credentials and a session secret of at least 32 characters. The application no longer silently falls back to a hard-coded secret.
+- **Safer cookies:** use HTTP-only and SameSite cookies, with the Secure flag enabled in production.
+- **Verified profile retrieval:** retrieve basic account information through Google's OAuth user-info endpoint instead of trusting an unverified client-side token payload.
+- **Restricted API access:** require an authenticated session before returning templates or sending email.
+- **Request limits:** limit JSON request size and enforce maximum lengths for recipient, subject, and message body.
+- **Header-injection protection:** reject newline characters in subject headers.
+- **Unicode-safe email content:** encode message subjects and UTF-8 message bodies before creating the Gmail API raw message.
+- **Token refresh persistence:** save refreshed Google tokens back into the active session.
+- **Send throttling:** apply a basic per-session limit to reduce accidental bursts of outgoing messages.
+- **Cleaner errors:** return clearer API error messages without exposing provider response details to the frontend.
 
-### Frontend and developer experience
+### Frontend and user experience
 
-- **Configurable API URL:** Removes the hard-coded localhost API URL and uses environment configuration with a Vite development proxy.
-- **More reliable template loading:** Avoids refetching templates whenever the selected template changes and prevents state updates after unmount.
-- **Better form behavior:** Uses a real form submit handler, browser validation, input limits, and accessible feedback/status messages.
-- **Authentication UX:** Adds loading and error states and refreshes the session after the OAuth redirect.
-- **Responsive UI:** Improves the layout, spacing, focus visibility, and small-screen behavior.
-- **Project cleanup:** Replaces starter branding, adds environment examples, and provides reproducible setup instructions.
+- **Configurable API endpoint:** remove the hard-coded API host and support environment-based configuration.
+- **Development proxy:** route local `/api` requests through Vite to the backend.
+- **Improved authentication flow:** add session loading, sign-in error feedback, and a session refresh after the OAuth redirect.
+- **More predictable template loading:** separate template retrieval from template selection and avoid updating component state after unmount.
+- **Safer form handling:** use browser validation, required fields, and input length limits.
+- **Accessible feedback:** provide status and error messages that can be announced by assistive technologies.
+- **Responsive styling:** improve layout behavior on narrow screens, keyboard focus indicators, and visual consistency.
+- **Updated application metadata:** replace starter-page branding and add a descriptive page title and metadata.
 
-## Security and deployment notes
+### Documentation and project setup
 
-- OAuth credentials and session secrets belong only in the backend environment.
-- Use HTTPS in production. Secure cookies are enabled when `NODE_ENV=production`.
-- The default Express MemoryStore is intended for local development only. Use a supported persistent session store in production.
-- The OAuth state store in this implementation is in-memory. For a multi-instance deployment, use a shared store for OAuth state and sessions.
-- This is a practical starter application, not a complete production email platform. Add monitoring, rate limiting, automated tests, and a deployment-specific session store before exposing it to public traffic.
+- Add separate frontend and backend environment examples.
+- Document Google Cloud and OAuth configuration.
+- Explain the local development workflow and available API routes.
+- Synchronize package metadata and lockfile names.
 
-## Acknowledgements
+## Security and production considerations
 
-Testmail is based on an existing open-source project and this repository is a maintenance-focused fork. Please review the original project's license and preserve its attribution requirements when redistributing.
+The current configuration is suitable as a development baseline, but additional work is required before public production deployment.
+
+- **Use HTTPS:** deploy behind HTTPS and set `NODE_ENV=production` so secure cookies are enabled.
+- **Use a persistent session store:** Express MemoryStore is not designed for production. Replace it with a maintained store backed by Redis or another persistent database.
+- **Use shared state in multi-instance deployments:** the current send-throttle map is process-local. Move rate-limit state to a shared store if the API runs on multiple instances.
+- **Protect secrets:** keep OAuth credentials and session secrets in your hosting provider's secret/environment manager.
+- **Restrict origins:** set `CLIENT_URL` to the exact frontend origin and configure the matching Google OAuth redirect URI.
+- **Review OAuth publishing requirements:** Google may require additional consent-screen verification before the application can be used by a wider audience.
+- **Add automated tests and monitoring:** test authentication, validation, message encoding, and failure scenarios before relying on the service.
+
+Do not use the default in-memory session store as a production session backend.
+
+## Troubleshooting
+
+### Google returns a redirect URI error
+
+Make sure the redirect URI in Google Cloud matches `GOOGLE_REDIRECT_URI` exactly:
+
+```text
+http://localhost:4000/api/auth/google/callback
+```
+
+The protocol, hostname, port, and path must all match.
+
+### The backend refuses to start
+
+Check that:
+
+- `server/.env` exists.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
+- `SESSION_SECRET` contains at least 32 characters.
+- Backend dependencies have been installed with npm.
+
+### The frontend cannot reach the API
+
+Check that the backend is running on port `4000`. If you changed its address, update `VITE_PROXY_TARGET` or `VITE_API_URL` as appropriate, then restart the Vite development server.
+
+### Google sign-in succeeds but the app does not recognize the session
+
+Make sure the frontend and backend origins match the configured `CLIENT_URL`, that requests include credentials, and that the browser accepts the session cookie. For local development, use the same hostname consistently (for example, do not mix `localhost` and `127.0.0.1`).
+
+### Gmail rejects a message
+
+Check that the Gmail API is enabled, the signed-in account has granted the requested send permission, and the OAuth session is still valid. If the session has expired, sign in again.
+
+## Contributing
+
+Contributions and suggestions are welcome.
+
+1. Fork the repository.
+2. Create a feature branch.
+3. Make your changes.
+4. Run the frontend lint and build checks.
+5. Open a pull request with a clear description of the changes.
+
+Please avoid committing credentials, tokens, real environment files, or personal data.
+
+## License
+
+Check the repository's license file for the applicable terms. If this fork is derived from another open-source project, retain the original copyright notices and comply with its license requirements.
