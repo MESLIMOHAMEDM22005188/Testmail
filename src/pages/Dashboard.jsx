@@ -12,146 +12,153 @@ export default function Dashboard() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
+    if (!user) return undefined;
+    let active = true;
+
     async function loadTemplates() {
+      setIsLoadingTemplates(true);
       try {
         const { data } = await api.get('/templates');
-        setTemplates(data);
-        if (data.length && !selectedTemplateId) {
-          setSelectedTemplateId(data[0].id);
-        }
+        if (!active) return;
+        const safeTemplates = Array.isArray(data) ? data : [];
+        setTemplates(safeTemplates);
+        setSelectedTemplateId((current) => current || safeTemplates[0]?.id || '');
       } catch (error) {
-        console.error('Failed to load templates', error);
-        setFeedback({ type: 'error', message: 'Could not load templates. Try refreshing.' });
+        console.error('Failed to load templates:', error.message);
+        if (active) setFeedback({ type: 'error', message: 'Templates could not be loaded. Please refresh the page.' });
+      } finally {
+        if (active) setIsLoadingTemplates(false);
       }
     }
 
-    if (user) {
-      loadTemplates();
-    }
-  }, [user, selectedTemplateId]);
+    loadTemplates();
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === selectedTemplateId) ?? null,
-    [templates, selectedTemplateId]
+    [templates, selectedTemplateId],
   );
 
   useEffect(() => {
-    if (!selectedTemplate) {
-      return;
-    }
-
+    if (!selectedTemplate) return;
     const senderName = user?.name ?? 'Your friend';
-    const computedSubject = selectedTemplate.subject.replace('{{name}}', recipientName || 'friend');
-    const computedBody = selectedTemplate.body
-      .replace('{{name}}', recipientName || 'friend')
-      .replace('{{sender}}', senderName);
-
-    setSubject(computedSubject);
-    setBody(computedBody);
+    const name = recipientName.trim() || 'friend';
+    setSubject(selectedTemplate.subject.replaceAll('{{name}}', name).replaceAll('{{sender}}', senderName));
+    setBody(selectedTemplate.body.replaceAll('{{name}}', name).replaceAll('{{sender}}', senderName));
   }, [recipientName, selectedTemplate, user]);
 
-  const handleSend = async () => {
-    if (!recipientEmail) {
-      setFeedback({ type: 'error', message: 'Please add the recipient email.' });
+  const handleSend = async (event) => {
+    event.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail.trim())) {
+      setFeedback({ type: 'error', message: 'Enter a valid recipient email address.' });
+      return;
+    }
+    if (!subject.trim() || !body.trim()) {
+      setFeedback({ type: 'error', message: 'Subject and message body are required.' });
       return;
     }
 
     setIsSending(true);
     setFeedback(null);
-
     try {
       await api.post('/email/send', {
-        to: recipientEmail,
+        to: recipientEmail.trim(),
         subject,
         body,
       });
-
-      setFeedback({ type: 'success', message: 'Email sent! 🎉' });
+      setFeedback({ type: 'success', message: 'Your email was sent successfully.' });
       setRecipientEmail('');
     } catch (error) {
-      console.error('Failed to send email', error);
-      setFeedback({ type: 'error', message: 'Could not send email. Check the console for details.' });
+      const message = error.response?.data?.message || 'Email could not be sent. Please try again.';
+      setFeedback({ type: 'error', message });
+      if (error.response?.status === 401) await logout();
     } finally {
       setIsSending(false);
     }
   };
 
-  if (!loading && !user) {
-    return <Navigate to="/" replace />;
+  if (loading) {
+    return <main className="page page--centered"><p role="status">Checking your session…</p></main>;
   }
+  if (!user) return <Navigate to="/" replace />;
 
   return (
-    <div className="page">
+    <main className="page">
       <header className="page__header">
         <div>
+          <p className="eyebrow">TESTMAIL WORKSPACE</p>
           <h1>Email Studio</h1>
-          <p className="subtitle">Signed in as {user?.name || 'Google User'}</p>
+          <p className="subtitle">Signed in as {user.email || user.name || 'Google User'}</p>
         </div>
-        <button className="button" onClick={logout}>
-          Sign out
-        </button>
+        <button className="button" type="button" onClick={logout}>Sign out</button>
       </header>
 
       <section className="card">
-        <h2>Step 1: Choose a template</h2>
-        <div className="template-list">
-          {templates.map((template) => (
-            <button
-              key={template.id}
-              className={`template-chip ${template.id === selectedTemplateId ? 'template-chip--active' : ''}`}
-              onClick={() => setSelectedTemplateId(template.id)}
-            >
-              {template.name}
-            </button>
-          ))}
+        <div>
+          <p className="eyebrow">01 / TEMPLATE</p>
+          <h2>Start with a template</h2>
+          <p className="subtitle">Choose a starting point. You can edit every field before sending.</p>
         </div>
+        {isLoadingTemplates ? <p role="status">Loading templates…</p> : (
+          <div className="template-list">
+            {templates.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className={`template-chip ${template.id === selectedTemplateId ? 'template-chip--active' : ''}`}
+                aria-pressed={template.id === selectedTemplateId}
+                onClick={() => setSelectedTemplateId(template.id)}
+              >
+                {template.name}
+              </button>
+            ))}
+            {!templates.length && <p className="subtitle">No templates are currently available.</p>}
+          </div>
+        )}
       </section>
 
-      <section className="card">
-        <h2>Step 2: Fill in the details</h2>
+      <form className="card" onSubmit={handleSend}>
+        <div>
+          <p className="eyebrow">02 / COMPOSE</p>
+          <h2>Write your message</h2>
+          <p className="subtitle">Review the recipient, subject and message before sending.</p>
+        </div>
         <div className="form-group">
           <label htmlFor="recipient-email">Recipient email</label>
-          <input
-            id="recipient-email"
-            type="email"
-            value={recipientEmail}
-            placeholder="friend@example.com"
-            onChange={(event) => setRecipientEmail(event.target.value)}
-          />
+          <input id="recipient-email" type="email" autoComplete="email" required maxLength={254}
+            value={recipientEmail} placeholder="friend@example.com"
+            onChange={(event) => setRecipientEmail(event.target.value)} />
         </div>
         <div className="form-group">
           <label htmlFor="recipient-name">Recipient name</label>
-          <input
-            id="recipient-name"
-            type="text"
-            value={recipientName}
-            placeholder="Your friend's name"
-            onChange={(event) => setRecipientName(event.target.value)}
-          />
+          <input id="recipient-name" type="text" maxLength={120} value={recipientName}
+            placeholder="Your friend's name" onChange={(event) => setRecipientName(event.target.value)} />
         </div>
         <div className="form-group">
           <label htmlFor="subject">Subject</label>
-          <input id="subject" type="text" value={subject} onChange={(event) => setSubject(event.target.value)} />
+          <input id="subject" type="text" required maxLength={998} value={subject}
+            onChange={(event) => setSubject(event.target.value)} />
         </div>
         <div className="form-group">
-          <label htmlFor="body">Body</label>
-          <textarea
-            id="body"
-            rows={8}
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-          />
+          <label htmlFor="body">Message</label>
+          <textarea id="body" rows={9} required maxLength={100000} value={body}
+            onChange={(event) => setBody(event.target.value)} />
         </div>
-        <button className="button button--primary" onClick={handleSend} disabled={isSending}>
-          {isSending ? 'Sending…' : 'Send email'}
-        </button>
-        {feedback && <p className={`feedback feedback--${feedback.type}`}>{feedback.message}</p>}
-      </section>
-    </div>
+        <div className="compose-footer">
+          <p className="footer-text">Messages are sent through the Gmail account connected to this session.</p>
+          <button className="button button--primary" type="submit" disabled={isSending || isLoadingTemplates || !templates.length}>
+            {isSending ? 'Sending…' : 'Send email'}
+          </button>
+        </div>
+        {feedback && <p className={`feedback feedback--${feedback.type}`} role="status">{feedback.message}</p>}
+      </form>
+    </main>
   );
 }
-
-
